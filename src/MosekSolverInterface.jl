@@ -15,78 +15,30 @@ import ..Mosek
 
 import MathProgBase
 
-status(t::Mosek.Task) = status(t,Mosek.MSK_RES_OK)
+status(t::Mosek.Task) = status(t, Mosek.MSK_RES_OK)
+
 function status(t::Mosek.Task, r::Mosek.Rescode)
-    if     r == Mosek.MSK_RES_OK
-        if ! ( (Mosek.solutiondef(t,Mosek.MSK_SOL_ITG) && Mosek.getsolsta(t,Mosek.MSK_SOL_ITG) != Mosek.MSK_SOL_STA_UNKNOWN) || 
-               (Mosek.solutiondef(t,Mosek.MSK_SOL_BAS) && Mosek.getsolsta(t,Mosek.MSK_SOL_BAS) != Mosek.MSK_SOL_STA_UNKNOWN) ||
-               (Mosek.solutiondef(t,Mosek.MSK_SOL_ITR) && Mosek.getsolsta(t,Mosek.MSK_SOL_ITR) != Mosek.MSK_SOL_STA_UNKNOWN) )
-            :Unknown
-        else
-            sol =
-                if     Mosek.solutiondef(t,Mosek.MSK_SOL_ITG) && Mosek.getsolsta(t,Mosek.MSK_SOL_ITG) != Mosek.MSK_SOL_STA_UNKNOWN
-                    Mosek.MSK_SOL_ITG
-                elseif Mosek.solutiondef(t,Mosek.MSK_SOL_BAS) && Mosek.getsolsta(t,Mosek.MSK_SOL_BAS) != Mosek.MSK_SOL_STA_UNKNOWN
-                    Mosek.MSK_SOL_BAS
-                else
-                    Mosek.MSK_SOL_ITR
-                end
+    # interior point solution
+    @assert Mosek.solutiondef(t, Mosek.MSK_SOL_ITR)
 
-            prosta = Mosek.getprosta(t,sol)
-            solsta = Mosek.getsolsta(t,sol)
+    solsta = Mosek.getsolsta(t, Mosek.MSK_SOL_ITR)
 
-            if  solsta == Mosek.MSK_SOL_STA_PRIM_AND_DUAL_FEAS
-                #:Suboptimal # Not a standard code
-                :Unknown
-            elseif solsta == Mosek.MSK_SOL_STA_PRIM_FEAS
-                if Mosek.getnumintvar(t) > 0
-                    #:Suboptimal # Not a standard code
-                    :Unknown
-                else
-                    :Unknown
-                end
-            elseif solsta == Mosek.MSK_SOL_STA_DUAL_ILLPOSED_CER ||
-                solsta == Mosek.MSK_SOL_STA_PRIM_ILLPOSED_CER
-                :DualityFailure
-            elseif solsta == Mosek.MSK_SOL_STA_DUAL_FEAS ||
-                solsta == Mosek.MSK_SOL_STA_NEAR_PRIM_FEAS ||
-                solsta == Mosek.MSK_SOL_STA_NEAR_DUAL_FEAS ||
-                solsta == Mosek.MSK_SOL_STA_NEAR_PRIM_AND_DUAL_FEAS
-                :Unknown
-            elseif solsta == Mosek.MSK_SOL_STA_DUAL_INFEAS_CER ||
-                solsta == Mosek.MSK_SOL_STA_NEAR_DUAL_INFEAS_CER
-                :Unbounded
-            elseif solsta == Mosek.MSK_SOL_STA_PRIM_INFEAS_CER ||
-                   solsta == Mosek.MSK_SOL_STA_NEAR_PRIM_INFEAS_CER
-                :Infeasible
-            elseif solsta == Mosek.MSK_SOL_STA_OPTIMAL ||
-                solsta == Mosek.MSK_SOL_STA_NEAR_OPTIMAL ||
-                solsta == Mosek.MSK_SOL_STA_INTEGER_OPTIMAL ||
-                solsta == Mosek.MSK_SOL_STA_NEAR_INTEGER_OPTIMAL
-                :Optimal
-            else
-                :Unknown
-            end
-        end
-    elseif r == Mosek.MSK_RES_TRM_MAX_ITERATIONS ||
-        r == Mosek.MSK_RES_TRM_MAX_NUM_SETBACKS ||
-        r == Mosek.MSK_RES_TRM_MAX_TIME ||
-        r == Mosek.MSK_RES_TRM_MIO_NEAR_ABS_GAP ||
-        r == Mosek.MSK_RES_TRM_MIO_NEAR_REL_GAP ||
-        r == Mosek.MSK_RES_TRM_MIO_NUM_BRANCHES ||
-        r == Mosek.MSK_RES_TRM_MIO_NUM_RELAXS ||
-        r == Mosek.MSK_RES_TRM_NUM_MAX_NUM_INT_SOLUTIONS ||
-        r == Mosek.MSK_RES_TRM_OBJECTIVE_RANGE
-        :UserLimit
-    elseif r == Mosek.MSK_RES_TRM_STALL
-        # Yes, I know this is not a standard code, but it doesn't fit any other code
-        :Stall
-    elseif r == Mosek.MSK_RES_TRM_USER_CALLBACK
-        :UserBreak
-    elseif r.value >= 1000 && r.value < 10000 # awful hack! Means: MSK_RES_ERR_*. r < 1000 is MSK_RES_WRN_*, r >= 10000 means MSK_RES_TRM_*
-        :Error
+    if solsta in (Mosek.MSK_SOL_STA_OPTIMAL, Mosek.MSK_SOL_STA_NEAR_OPTIMAL)
+        return :Optimal
+    elseif solsta in (Mosek.MSK_SOL_STA_DUAL_INFEAS_CER, Mosek.MSK_SOL_STA_NEAR_DUAL_INFEAS_CER)
+        return :Unbounded
+    elseif solsta in (Mosek.MSK_SOL_STA_PRIM_INFEAS_CER, Mosek.MSK_SOL_STA_NEAR_PRIM_INFEAS_CER)
+        return :Infeasible
+    elseif solsta in (Mosek.MSK_SOL_STA_PRIM_AND_DUAL_FEAS, Mosek.MSK_SOL_STA_NEAR_PRIM_AND_DUAL_FEAS)
+        return :PDFeas
+    elseif solsta in (Mosek.MSK_SOL_STA_PRIM_FEAS, Mosek.MSK_SOL_STA_NEAR_PRIM_FEAS)
+        return :PrimFeas
+    elseif solsta in (Mosek.MSK_SOL_STA_DUAL_FEAS, Mosek.MSK_SOL_STA_NEAR_DUAL_FEAS)
+        return :DualFeas
     else
-        :Unknown
+        prosta = Mosek.getprosta(t, Mosek.MSK_SOL_ITR)
+        println("Mosek problem is $prosta, solution is $solsta, response is $r\n")
+        return :Unknown
     end
 end
 
@@ -344,4 +296,3 @@ include("MosekLPQCQPInterface.jl")
 include("MosekConicInterface.jl")
 
 end
-
